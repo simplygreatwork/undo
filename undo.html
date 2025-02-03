@@ -48,7 +48,7 @@
 		function changed() {
 			
 			promoted = null
-			introspect()
+			if (history.on_change) history.on_change(edits, index)
 		}
 		
 		function attach(textarea) {
@@ -129,7 +129,8 @@
 					now,
 					undo: () => apply_(edit.then),
 					redo: () => apply_(edit.now),
-					condense
+					condense,
+					to_string
 				})
 				
 				function apply_(props) {
@@ -182,6 +183,13 @@
 					}
 					return i
 				}
+				
+				function to_string(props) {
+					
+					if (props.offset !== undefined) return `@${props.offset}-${props.deleted}+${props.inserted}`
+					else if (props.value !== undefined) return props.value
+					else return ''
+				}
 			}
 		}
 		
@@ -190,17 +198,10 @@
 			const array = []
 			array.push(`print ${index} of ${edits.length}`)
 			edits.forEach((edit, index) => {
-				array.push(`${index}:undo:${value_of(edit.then)}`)
-				array.push(`${index}:redo:${value_of(edit.now)}`)
+				array.push(`${index}:undo:${edit.to_string(edit.then)}`)
+				array.push(`${index}:redo:${edit.to_string(edit.now)}`)
 			})
 			document.querySelector('pre').innerText = array.join('\n')
-			
-			function value_of(props) {
-				
-				if (props.offset !== undefined) return `@${props.offset}-${props.deleted}+${props.inserted}`
-				else if (props.value !== undefined) return props.value
-				else return ''
-			}
 		}
 	}
 	
@@ -217,14 +218,25 @@
 			history.undo()
 		}
 	})
-	
-	window.addEventListener('error', (message, url, line, column, error) => {
-		document.querySelector('body').style.border = '5px solid red'
-	})
+		
+	history.on_change = (edits, index) => {
+		
+		const array = []
+		array.push(`print ${index} of ${edits.length}`)
+		edits.forEach((edit, index) => {
+			array.push(`${index}:undo:${edit.to_string(edit.then)}`)
+			array.push(`${index}:redo:${edit.to_string(edit.now)}`)
+		})
+		document.querySelector('pre').innerText = array.join('\n')
+	}
 	
 	const textareas = document.querySelectorAll('textarea')
 	textareas.forEach(textarea => textarea.value = '1234567890')
 	textareas.forEach(textarea => history.attach(textarea))
+	
+	window.addEventListener('error', (message, url, line, column, error) => {
+		document.querySelector('body').style.border = '5px solid red'
+	})
 	
 </script>
 </head>
