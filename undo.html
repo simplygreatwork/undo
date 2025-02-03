@@ -1,0 +1,240 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>undo</title>
+<link rel="icon" href="data:image/x-icon;base64,">
+<script type="module">
+	
+	export const make_history = () => {
+		
+		let edits = [], index = -1, then, promoted
+		const history = {}
+		return Object.assign(history, { undo, redo, attach })
+		
+		function undo() {
+			
+			can_undo(edit => {
+				edit.undo()
+				if (index >= 0) index--
+			})
+		}
+		
+		function redo() {
+			
+			if (index < edits.length - 1) index++
+			can_redo(edit => {
+				edit.redo()
+			})
+		}
+		
+		function can_undo(fn) {
+			
+			if (index < 0 || index >= edits.length) return
+			fn(edits[index])
+			changed()
+		}
+		
+		function can_redo(fn) {
+			
+			if (index < 0 || index >= edits.length) return
+			if (! edits[index].redo) return
+			fn(edits[index])
+			changed()
+		}
+		
+		function changed() {
+			
+			promoted = null
+			introspect()
+		}
+		
+		function attach(textarea) {
+			
+			let keydown = false, input = false
+			textarea.selectionStart = 0
+			textarea.selectionEnd = 0
+			promoted = capture(textarea)
+			listen()
+			
+			function listen() {
+				
+				textarea.addEventListener('keydown', event => keydown = true)
+				textarea.addEventListener('input', event => input = true)
+				textarea.addEventListener('focus', focused)
+				textarea.addEventListener('mousedown', event => {
+					promoted = capture(textarea)
+				})
+				textarea.addEventListener('selectionchange', () => {
+					then = capture(textarea)
+					if (keydown && ! input) promoted = capture(textarea)
+					keydown = input = false
+				})
+				textarea.addEventListener('input', event => {
+					truncate()
+					promote()
+					edits[index].now = capture(textarea)
+					changed()
+				})
+			}
+			
+			function truncate() {
+				
+				if (! (index < edits.length - 1)) return
+				edits = edits.slice(0, index + 1)
+				advance(then)
+			}
+			
+			function promote() {
+				
+				if (! promoted) return
+				if (! (edits.length === 0 || edits.at(index).now)) return
+				advance(promoted)
+			}
+			
+			function advance(props) {
+				
+				if (edits.at(-1)) edits.at(-1).condense()
+				edits.push(make_edit(props))
+				index++
+			}
+			
+			function capture(textarea) {
+				
+				let { value, selectionStart, selectionEnd } = textarea
+				return { textarea, value, selectionStart, selectionEnd }
+			}
+			
+			function apply(props) {
+				
+				const { textarea, value, selectionStart, selectionEnd } = props
+				textarea.removeEventListener('focus', focused)
+				input = true
+				textarea.focus()
+				Object.assign(textarea, { value, selectionStart, selectionEnd })
+				textarea.addEventListener('focus', focused)
+			}
+			
+			function focused() {
+				promoted = capture(textarea)
+			}
+			
+			function make_edit(then, now) {
+				
+				const edit = {}
+				return Object.assign(edit, {
+					then,
+					now,
+					undo: () => apply_(edit.then),
+					redo: () => apply_(edit.now),
+					condense
+				})
+				
+				function apply_(props) {
+					
+					const { textarea, selectionStart, selectionEnd, offset, deleted, inserted } = props
+					let { value } = props
+					if (offset !== undefined) {
+						value = textarea.value
+						const head = value.slice(0, offset)
+						const tail = value.slice(offset + deleted.length, value.length)
+						value = head + inserted + tail
+					}
+					apply({ textarea, value, selectionStart, selectionEnd })
+				}
+				
+				function condense() {
+					
+					if (! edit.then || ! edit.now) return
+					if (edit.then.offset && edit.now.offset) return
+					const then = edit.then.value, now = edit.now.value
+					edit.then = combine(edit.then, diff(now, then))
+					edit.now = combine(edit.now, diff(then, now))
+				}
+				
+				function combine(props, diff) {
+					
+					const { textarea, selectionStart, selectionEnd } = props
+					return { textarea, selectionStart, selectionEnd, ...diff }
+				}
+				
+				function diff(a, b) {
+					
+					const begin = find(a, b, 1)
+					const end = find(a, b, -1)
+					return {
+						offset: begin,
+						deleted: a.slice(begin, a.length + end + 1),
+						inserted: b.slice(begin, b.length + end + 1)
+					}
+				}
+				
+				function find(a, b, direction) {
+					
+					let i = direction === 1 ? 0 : -1
+					while (true) {
+						if (a.at(i) === undefined) break
+						if (b.at(i) === undefined) break
+						if (a.at(i) !== b.at(i)) break
+						direction === 1 ? i++ : i--
+					}
+					return i
+				}
+			}
+		}
+		
+		function introspect() {
+			
+			const array = []
+			array.push(`print ${index} of ${edits.length}`)
+			edits.forEach((edit, index) => {
+				array.push(`${index}:undo:${value_of(edit.then)}`)
+				array.push(`${index}:redo:${value_of(edit.now)}`)
+			})
+			document.querySelector('pre').innerText = array.join('\n')
+			
+			function value_of(props) {
+				
+				if (props.offset !== undefined) return `@${props.offset}-${props.deleted}+${props.inserted}`
+				else if (props.value !== undefined) return props.value
+				else return ''
+			}
+		}
+	}
+	
+	const history = make_history()
+	
+	document.addEventListener('keydown', event => {
+		if (event.code == 'KeyZ' && event.ctrlKey && event.shiftKey) {
+			event.preventDefault()
+			event.stopPropagation()
+			history.redo()
+		} else if (event.code == 'KeyZ' && event.ctrlKey) {
+			event.preventDefault()
+			event.stopPropagation()
+			history.undo()
+		}
+	})
+	
+	window.addEventListener('error', (message, url, line, column, error) => {
+		document.querySelector('body').style.border = '5px solid red'
+	})
+	
+	const textareas = document.querySelectorAll('textarea')
+	textareas.forEach(textarea => textarea.value = '1234567890')
+	textareas.forEach(textarea => history.attach(textarea))
+	
+</script>
+</head>
+<body>
+<div class="columns">
+<textarea wrap="off" spellcheck="false"></textarea>
+<textarea wrap="off" spellcheck="false"></textarea>
+<textarea wrap="off" spellcheck="false"></textarea>
+<textarea wrap="off" spellcheck="false"></textarea>
+<pre></pre>
+</div>
+</body>
+</html>
