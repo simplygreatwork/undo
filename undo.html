@@ -192,17 +192,6 @@
 				}
 			}
 		}
-		
-		function introspect() {
-			
-			const array = []
-			array.push(`print ${index} of ${edits.length}`)
-			edits.forEach((edit, index) => {
-				array.push(`${index}:undo:${edit.to_string(edit.then)}`)
-				array.push(`${index}:redo:${edit.to_string(edit.now)}`)
-			})
-			document.querySelector('pre').innerText = array.join('\n')
-		}
 	}
 	
 	const history = make_history()
